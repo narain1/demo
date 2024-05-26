@@ -1,388 +1,421 @@
 <!doctype html>
 <html lang="en-us">
-    <head>
-        <title>stream : Real-time Whisper transcription in WebAssembly</title>
+<head>
+    <title>stream : Real-time Whisper transcription in WebAssembly</title>
 
-        <style>
-            #output {
-                width: 100%;
-                height: 100%;
-                margin: 0 auto;
-                margin-top: 10px;
-                border-left: 0px;
-                border-right: 0px;
-                padding-left: 0px;
-                padding-right: 0px;
-                display: block;
-                background-color: black;
-                color: white;
-                font-size: 10px;
-                font-family: 'Lucida Console', Monaco, monospace;
-                outline: none;
-                white-space: pre;
-                overflow-wrap: normal;
-                overflow-x: scroll;
-            }
-        </style>
-    </head>
-    <body>
-        <div id="main-container">
-
-            <hr>
-
-            Select the model you would like to use, click the "Start" button and start speaking
-
-            <br><br>
-
-            <div id="model-whisper">
-                Whisper model: <span id="model-whisper-status"></span>
-                <button id="fetch-whisper-tiny-en" onclick="loadWhisper('tiny.en')">tiny.en (75 MB)</button>
-                <button id="fetch-whisper-base-en" onclick="loadWhisper('base.en')">base.en (142 MB)</button>
-                <br><br>
-                Quantized models:<br><br>
-                <button id="fetch-whisper-tiny-en-q5_1"   onclick="loadWhisper('tiny-en-q5_1')">tiny.en (Q5_1, 31 MB)</button>
-                <button id="fetch-whisper-base-en-q5_1"   onclick="loadWhisper('base-en-q5_1')">base.en (Q5_1, 57 MB)</button>
-                <span id="fetch-whisper-progress"></span>
-
-                <!--
-                    <input type="file" id="file" name="file" onchange="loadFile(event, 'whisper.bin')" />
-                -->
-            </div>
-
-            <br>
-
-            <div id="input">
-                <button id="start"  onclick="onStart()" disabled>Start</button>
-                <button id="stop"   onclick="onStop()" disabled>Stop</button>
-                <button id="clear"  onclick="clearCache()">Clear Cache</button>
-            </div>
-
-            <br>
-
-            <div id="state">
-                Status: <b><span id="state-status">not started</span></b>
-
-                <pre id="state-transcribed">[The transcribed text will be displayed here]</pre>
-            </div>
-
-            <hr>
-
-            Debug output:
-            <textarea id="output" rows="20"></textarea>
-
-            <br>
-
-            <b>Troubleshooting</b>
-
-            <br><br>
-
-            The page does some heavy computations, so make sure:
-
-            <ul>
-                <li>To use a modern web browser (e.g. Chrome, Firefox)</li>
-                <li>To use a fast desktop or laptop computer (i.e. not a mobile phone)</li>
-                <li>Your browser supports WASM <a href="https://webassembly.org/roadmap/">Fixed-width SIMD</a></li>
-            </ul>
-
+    <style>
+        #output {
+            width: 100%;
+            height: 100%;
+            margin: 0 auto;
+            margin-top: 10px;
+            border-left: 0px;
+            border-right: 0px;
+            padding-left: 0px;
+            padding-right: 0px;
+            display: block;
+            background-color: black;
+            color: white;
+            font-size: 10px;
+            font-family: 'Lucida Console', Monaco, monospace;
+            outline: none;
+            white-space: pre;
+            overflow-wrap: normal;
+            overflow-x: scroll;
+        }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <hr>
+        Select the model you would like to use, click the "Start" button and start speaking
+        <br><br>
+        <div id="model-whisper">
+            Whisper model: <span id="model-whisper-status"></span>
+            <button id="fetch-whisper-medium" onclick="loadWhisper()">whisper medium (514 MB)</button>
+            <span id="fetch-whisper-progress"></span>
         </div>
+        <br>
+        <div id="input">
+            <button id="start" onclick="onStart()" disabled>Start</button>
+            <button id="stop" onclick="onStop()" disabled>Stop</button>
+            <button id="clear" onclick="clearCache()">Clear Cache</button>
+        </div>
+        <br>
+        <div id="state">
+            Status: <b><span id="state-status">not started</span></b>
+            <pre id="state-transcribed">[The transcribed text will be displayed here]</pre>
+        </div>
+        <hr>
+        Debug output:
+        <textarea id="output" rows="20"></textarea>
+        <br>
+        <b>Troubleshooting</b>
+        <br><br>
+        The page does some heavy computations, so make sure:
+        <ul>
+            <li>To use a modern web browser (e.g. Chrome, Firefox)</li>
+            <li>To use a fast desktop or laptop computer (i.e. not a mobile phone)</li>
+            <li>Your browser supports WASM <a href="https://webassembly.org/roadmap/">Fixed-width SIMD</a></li>
+        </ul>
+    </div>
+    <script type="text/javascript" src="helpers.js"></script>
+    <script type='text/javascript'>
+        // Web Audio context
+        var context = null;
 
-        <script type="text/javascript" src="helpers.js"></script>
-        <script type='text/javascript'>
-            // web audio context
-            var context = null;
+        // Audio data
+        var audio = null;
+        var audio0 = null;
 
-            // audio data
-            var audio = null;
-            var audio0 = null;
+        // Stream instance
+        var instance = null;
 
-            // the stream instance
-            var instance = null;
+        // Model name
+        var model_whisper = 'whisper-medium';
 
-            // model name
-            var model_whisper = null;
+        var Module = {
+            print: printTextarea,
+            printErr: printTextarea,
+            setStatus: function(text) {
+                printTextarea('js: ' + text);
+            },
+            monitorRunDependencies: function(left) {
+            },
+            preRun: function() {
+                printTextarea('js: Preparing ...');
+            },
+            postRun: function() {
+                printTextarea('js: Initialized successfully!');
+            }
+        };
 
-            var Module = {
-                print: printTextarea,
-                printErr: printTextarea,
-                setStatus: function(text) {
-                    printTextarea('js: ' + text);
-                },
-                monitorRunDependencies: function(left) {
-                },
-                preRun: function() {
-                    printTextarea('js: Preparing ...');
-                },
-                postRun: function() {
-                    printTextarea('js: Initialized successfully!');
+        // IndexedDB setup
+        let dbVersion = 1;
+        let dbName = 'narain1.github.io';
+        let db;
+        let indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+
+        const request = indexedDB.open(dbName, dbVersion);
+
+        request.onupgradeneeded = function(event) {
+            db = event.target.result;
+            if (!db.objectStoreNames.contains('models')) {
+                db.createObjectStore('models', { keyPath: 'name' });
+            }
+        };
+
+        request.onsuccess = function(event) {
+            db = event.target.result;
+        };
+
+        request.onerror = function(event) {
+            console.log('Error opening IndexedDB:', event.target.errorCode);
+        };
+
+        function storeFS(fname, buf) {
+            try {
+                Module.FS_unlink(fname);
+            } catch (e) {
+                // Ignore error
+            }
+
+            Module.FS_createDataFile("/", fname, buf, true, true);
+            printTextarea('storeFS: stored model: ' + fname + ' size: ' + buf.length);
+            storeModel(fname, buf);
+            document.getElementById('model-whisper-status').innerHTML = 'loaded "' + model_whisper + '"!';
+            if (model_whisper != null) {
+                document.getElementById('start').disabled = false;
+                document.getElementById('stop').disabled = true;
+            }
+        }
+
+        function loadRemote(url, dst, size_mb, cbProgress, cbSuccess, cbCancel, printTextarea) {
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", url, true);
+            xhr.responseType = "arraybuffer";
+
+            xhr.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percentComplete = e.loaded / e.total;
+                    cbProgress(percentComplete);
                 }
             };
 
-            //
-            // fetch models
-            //
-
-            let dbVersion = 1
-            let dbName    = 'narain1.github.io';
-            let indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB
-
-            function storeFS(fname, buf) {
-                // write to WASM file using FS_createDataFile
-                // if the file exists, delete it
-                try {
-                    Module.FS_unlink(fname);
-                } catch (e) {
-                    // ignore
+            xhr.onload = function(e) {
+                if (xhr.status === 200) {
+                    const buf = new Uint8Array(xhr.response);
+                    cbSuccess(dst, buf);
+                } else {
+                    printTextarea('Failed to load remote model: ' + xhr.status);
+                    cbCancel();
                 }
+            };
 
-                Module.FS_createDataFile("/", fname, buf, true, true);
+            xhr.onerror = function() {
+                printTextarea('Failed to load remote model');
+                cbCancel();
+            };
 
-                printTextarea('storeFS: stored model: ' + fname + ' size: ' + buf.length);
+            xhr.send();
+        }
 
-                document.getElementById('model-whisper-status').innerHTML = 'loaded "' + model_whisper + '"!';
+        function loadWhisper() {
+            getModel('whisper.bin', function(buffer) {
+                if (buffer) {
+                    storeFS('whisper.bin', buffer);
+                } else {
+                    let url = 'https://huggingface.co/narainp/whisper-indic/resolve/main/ggml-medium-q5_0.bin?download=true';
+                    let dst = 'whisper.bin';
+                    let size_mb = 514;
 
-                if (model_whisper != null) {
+                    document.getElementById('fetch-whisper-medium').style.display = 'none';
+                    document.getElementById('model-whisper-status').innerHTML = 'loading "whisper medium" ... ';
+
+                    let cbProgress = function(p) {
+                        let el = document.getElementById('fetch-whisper-progress');
+                        el.innerHTML = Math.round(100 * p) + '%';
+                    };
+
+                    let cbCancel = function() {
+                        document.getElementById('fetch-whisper-medium').style.display = 'inline-block';
+                        document.getElementById('model-whisper-status').innerHTML = '';
+                    };
+
+                    loadRemote(url, dst, size_mb, cbProgress, storeFS, cbCancel, printTextarea);
+                }
+            });
+        }
+
+        function storeModel(name, buffer) {
+            const transaction = db.transaction(['models'], 'readwrite');
+            const objectStore = transaction.objectStore('models');
+            const request = objectStore.put({ name: name, buffer: buffer });
+
+            request.onsuccess = function() {
+                console.log('Model stored successfully:', name);
+            };
+
+            request.onerror = function(event) {
+                console.log('Error storing model:', event.target.errorCode);
+            };
+        }
+
+        function getModel(name, callback) {
+            const transaction = db.transaction(['models'], 'readonly');
+            const objectStore = transaction.objectStore('models');
+            const request = objectStore.get(name);
+
+            request.onsuccess = function(event) {
+                if (request.result) {
+                    callback(request.result.buffer);
+                } else {
+                    console.log('Model not found in IndexedDB:', name);
+                    callback(null);
+                }
+            };
+
+            request.onerror = function(event) {
+                console.log('Error retrieving model:', event.target.errorCode);
+                callback(null);
+            };
+        }
+
+        function clearCache() {
+            const transaction = db.transaction(['models'], 'readwrite');
+            const objectStore = transaction.objectStore('models');
+            const request = objectStore.clear();
+
+            request.onsuccess = function() {
+                console.log('Cache cleared successfully');
+            };
+
+            request.onerror = function(event) {
+                console.log('Error clearing cache:', event.target.errorCode);
+            };
+        }
+
+        // Microphone
+        const kSampleRate = 16000;
+        const kRestartRecording_s = 120;
+        const kIntervalAudio_ms = 5000;
+
+        var mediaRecorder = null;
+        var doRecording = false;
+        var startTime = 0;
+
+        window.AudioContext = window.AudioContext || window.webkitAudioContext;
+        window.OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+
+        function stopRecording() {
+            Module.set_status("paused");
+            doRecording = false;
+            audio0 = null;
+            audio = null;
+            context = null;
+        }
+
+        function startRecording() {
+            if (!context) {
+                context = new AudioContext({
+                    sampleRate: kSampleRate,
+                    channelCount: 1,
+                    echoCancellation: false,
+                    autoGainControl: true,
+                    noiseSuppression: true,
+                });
+            }
+
+            Module.set_status("");
+
+            document.getElementById('start').disabled = true;
+            document.getElementById('stop').disabled = false;
+
+            doRecording = true;
+            startTime = Date.now();
+
+            var chunks = [];
+            var stream = null;
+
+            navigator.mediaDevices.getUserMedia({audio: true, video: false})
+                .then(function(s) {
+                    stream = s;
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = function(e) {
+                        chunks.push(e.data);
+
+                        var blob = new Blob(chunks, { 'type': 'audio/ogg; codecs=opus' });
+                        var reader = new FileReader();
+
+                        reader.onload = function(event) {
+                            var buf = new Uint8Array(reader.result);
+
+                            if (!context) {
+                                return;
+                            }
+                            context.decodeAudioData(buf.buffer, function(audioBuffer) {
+                                var offlineContext = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
+                                var source = offlineContext.createBufferSource();
+                                source.buffer = audioBuffer;
+                                source.connect(offlineContext.destination);
+                                source.start(0);
+
+                                offlineContext.startRendering().then(function(renderedBuffer) {
+                                    audio = renderedBuffer.getChannelData(0);
+
+                                    var audioAll = new Float32Array(audio0 == null ? audio.length : audio0.length + audio.length);
+                                    if (audio0 != null) {
+                                        audioAll.set(audio0, 0);
+                                    }
+                                    audioAll.set(audio, audio0 == null ? 0 : audio0.length);
+
+                                    if (instance) {
+                                        Module.set_audio(instance, audioAll);
+                                    }
+                                });
+                            }, function(e) {
+                                audio = null;
+                            });
+                        }
+
+                        reader.readAsArrayBuffer(blob);
+                    };
+
+                    mediaRecorder.onstop = function(e) {
+                        if (doRecording) {
+                            setTimeout(function() {
+                                startRecording();
+                            });
+                        }
+                    };
+
+                    mediaRecorder.start(kIntervalAudio_ms);
+                })
+                .catch(function(err) {
+                    printTextarea('js: error getting audio stream: ' + err);
+                });
+
+            var interval = setInterval(function() {
+                if (!doRecording) {
+                    clearInterval(interval);
+                    mediaRecorder.stop();
+                    stream.getTracks().forEach(function(track) {
+                        track.stop();
+                    });
+
                     document.getElementById('start').disabled = false;
-                    document.getElementById('stop' ).disabled = true;
-                }
-            }
+                    document.getElementById('stop').disabled = true;
 
-            function loadWhisper(model) {
-                let urls = {
-                    'tiny.en': 'https://whisper.ggerganov.com/ggml-model-whisper-tiny.en.bin',
-                    'base.en': 'https://whisper.ggerganov.com/ggml-model-whisper-base.en.bin',
-
-                    'tiny-en-q5_1':  'https://whisper.ggerganov.com/ggml-model-whisper-tiny.en-q5_1.bin',
-                    'base-en-q5_1':  'https://whisper.ggerganov.com/ggml-model-whisper-base.en-q5_1.bin',
-                };
-
-                let sizes = {
-                    'tiny.en': 75,
-                    'base.en': 142,
-
-                    'tiny-en-q5_1':   31,
-                    'base-en-q5_1':   57,
-                };
-
-                let url     = urls[model];
-                let dst     = 'whisper.bin';
-                let size_mb = sizes[model];
-
-                model_whisper = model;
-
-                document.getElementById('fetch-whisper-tiny-en').style.display = 'none';
-                document.getElementById('fetch-whisper-base-en').style.display = 'none';
-
-                document.getElementById('fetch-whisper-tiny-en-q5_1').style.display = 'none';
-                document.getElementById('fetch-whisper-base-en-q5_1').style.display = 'none';
-
-                document.getElementById('model-whisper-status').innerHTML = 'loading "' + model + '" ... ';
-
-                cbProgress = function(p) {
-                    let el = document.getElementById('fetch-whisper-progress');
-                    el.innerHTML = Math.round(100*p) + '%';
-                };
-
-                cbCancel = function() {
-                    var el;
-                    el = document.getElementById('fetch-whisper-tiny-en'); if (el) el.style.display = 'inline-block';
-                    el = document.getElementById('fetch-whisper-base-en'); if (el) el.style.display = 'inline-block';
-
-                    el = document.getElementById('fetch-whisper-tiny-en-q5_1'); if (el) el.style.display = 'inline-block';
-                    el = document.getElementById('fetch-whisper-base-en-q5_1'); if (el) el.style.display = 'inline-block';
-
-                    el = document.getElementById('model-whisper-status');  if (el) el.innerHTML = '';
-                };
-
-                loadRemote(url, dst, size_mb, cbProgress, storeFS, cbCancel, printTextarea);
-            }
-
-            //
-            // microphone
-            //
-
-            const kSampleRate = 16000;
-            const kRestartRecording_s = 120;
-            const kIntervalAudio_ms = 5000; // pass the recorded audio to the C++ instance at this rate
-
-            var mediaRecorder = null;
-            var doRecording = false;
-            var startTime = 0;
-
-            window.AudioContext = window.AudioContext || window.webkitAudioContext;
-            window.OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-
-            function stopRecording() {
-                Module.set_status("paused");
-                doRecording = false;
-                audio0 = null;
-                audio = null;
-                context = null;
-            }
-
-            function startRecording() {
-                if (!context) {
-                    context = new AudioContext({
-                        sampleRate: kSampleRate,
-                        channelCount: 1,
-                        echoCancellation: false,
-                        autoGainControl:  true,
-                        noiseSuppression: true,
-                    });
+                    mediaRecorder = null;
                 }
 
-                Module.set_status("");
-
-                document.getElementById('start').disabled = true;
-                document.getElementById('stop').disabled = false;
-
-                doRecording = true;
-                startTime = Date.now();
-
-                var chunks = [];
-                var stream = null;
-
-                navigator.mediaDevices.getUserMedia({audio: true, video: false})
-                    .then(function(s) {
-                        stream = s;
-                        mediaRecorder = new MediaRecorder(stream);
-                        mediaRecorder.ondataavailable = function(e) {
-                            chunks.push(e.data);
-
-                            var blob = new Blob(chunks, { 'type' : 'audio/ogg; codecs=opus' });
-                            var reader = new FileReader();
-
-                            reader.onload = function(event) {
-                                var buf = new Uint8Array(reader.result);
-
-                                if (!context) {
-                                    return;
-                                }
-                                context.decodeAudioData(buf.buffer, function(audioBuffer) {
-                                    var offlineContext = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
-                                    var source = offlineContext.createBufferSource();
-                                    source.buffer = audioBuffer;
-                                    source.connect(offlineContext.destination);
-                                    source.start(0);
-
-                                    offlineContext.startRendering().then(function(renderedBuffer) {
-                                        audio = renderedBuffer.getChannelData(0);
-
-                                        //printTextarea('js: audio recorded, size: ' + audio.length + ', old size: ' + (audio0 == null ? 0 : audio0.length));
-
-                                        var audioAll = new Float32Array(audio0 == null ? audio.length : audio0.length + audio.length);
-                                        if (audio0 != null) {
-                                            audioAll.set(audio0, 0);
-                                        }
-                                        audioAll.set(audio, audio0 == null ? 0 : audio0.length);
-
-                                        if (instance) {
-                                            Module.set_audio(instance, audioAll);
-                                        }
-                                    });
-                                }, function(e) {
-                                    audio = null;
-                                });
-                            }
-
-                            reader.readAsArrayBuffer(blob);
-                        };
-
-                        mediaRecorder.onstop = function(e) {
-                            if (doRecording) {
-                                setTimeout(function() {
-                                    startRecording();
-                                });
-                            }
-                        };
-
-                        mediaRecorder.start(kIntervalAudio_ms);
-                    })
-                    .catch(function(err) {
-                        printTextarea('js: error getting audio stream: ' + err);
-                    });
-
-                var interval = setInterval(function() {
-                    if (!doRecording) {
+                if (audio != null && audio.length > kSampleRate * kRestartRecording_s) {
+                    if (doRecording) {
                         clearInterval(interval);
+                        audio0 = audio;
+                        audio = null;
                         mediaRecorder.stop();
                         stream.getTracks().forEach(function(track) {
                             track.stop();
                         });
-
-                        document.getElementById('start').disabled = false;
-                        document.getElementById('stop').disabled  = true;
-
-                        mediaRecorder = null;
                     }
+                }
+            }, 100);
+        }
 
-                    // if audio length is more than kRestartRecording_s seconds, restart recording
-                    if (audio != null && audio.length > kSampleRate*kRestartRecording_s) {
-                        if (doRecording) {
-                            //printTextarea('js: restarting recording');
+        // Main
+        var nLines = 0;
+        var intervalUpdate = null;
+        var transcribedAll = '';
 
-                            clearInterval(interval);
-                            audio0 = audio;
-                            audio = null;
-                            mediaRecorder.stop();
-                            stream.getTracks().forEach(function(track) {
-                                track.stop();
-                            });
-                        }
-                    }
-                }, 100);
+        function onStart() {
+            if (!instance) {
+                instance = Module.init('whisper.bin');
+
+                if (instance) {
+                    printTextarea("js: whisper initialized, instance: " + instance);
+                }
             }
 
-            //
-            // main
-            //
+            if (!instance) {
+                printTextarea("js: failed to initialize whisper");
+                return;
+            }
 
-            var nLines = 0;
-            var intervalUpdate = null;
-            var transcribedAll = '';
+            startRecording();
 
-            function onStart() {
-                if (!instance) {
-                    instance = Module.init('whisper.bin');
+            intervalUpdate = setInterval(function() {
+                var transcribed = Module.get_transcribed();
 
-                    if (instance) {
-                        printTextarea("js: whisper initialized, instance: " + instance);
+                if (transcribed != null && transcribed.length > 1) {
+                    transcribedAll += transcribed + '<br>';
+                    nLines++;
+
+                    if (nLines > 10) {
+                        var i = transcribedAll.indexOf('<br>');
+                        if (i > 0) {
+                            transcribedAll = transcribedAll.substring(i + 4);
+                            nLines--;
+                        }
                     }
                 }
 
-                if (!instance) {
-                    printTextarea("js: failed to initialize whisper");
-                    return;
-                }
+                document.getElementById('state-status').innerHTML = Module.get_status();
+                document.getElementById('state-transcribed').innerHTML = transcribedAll;
+            }, 100);
+        }
 
-                startRecording();
+        function onStop() {
+            stopRecording();
+        }
 
-                intervalUpdate = setInterval(function() {
-                    var transcribed = Module.get_transcribed();
-
-                    if (transcribed != null && transcribed.length > 1) {
-                        transcribedAll += transcribed + '<br>';
-                        nLines++;
-
-                        // if more than 10 lines, remove the first line
-                        if (nLines > 10) {
-                            var i = transcribedAll.indexOf('<br>');
-                            if (i > 0) {
-                                transcribedAll = transcribedAll.substring(i + 4);
-                                nLines--;
-                            }
-                        }
-                    }
-
-                    document.getElementById('state-status').innerHTML = Module.get_status();
-                    document.getElementById('state-transcribed').innerHTML = transcribedAll;
-                }, 100);
-            }
-
-            function onStop() {
-                stopRecording();
-            }
-
-        </script>
-        <script type="text/javascript" src="stream.js"></script>
-    </body>
+        function printTextarea(text) {
+            const textarea = document.getElementById('output');
+            textarea.value += text + '\n';
+            textarea.scrollTop = textarea.scrollHeight;
+        }
+    </script>
+    <script type="text/javascript" src="stream.js"></script>
+</body>
 </html>
+
