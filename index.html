@@ -27,22 +27,6 @@
     </head>
     <body>
         <div id="main-container">
-            <b>stream : Real-time Whisper transcription in WebAssembly</b>
-
-            <br><br>
-
-            You can find more about this project on <a href="https://github.com/ggerganov/whisper.cpp/tree/master/examples/stream.wasm">GitHub</a>.
-
-            <br><br>
-
-            <b>More examples:</b>
-                <a href="https://whisper.ggerganov.com/">main</a> |
-                <a href="https://whisper.ggerganov.com/bench">bench</a> |
-                <a href="https://whisper.ggerganov.com/stream">stream</a> |
-                <a href="https://whisper.ggerganov.com/command">command</a> |
-                <a href="https://whisper.ggerganov.com/talk">talk</a> |
-
-            <br><br>
 
             <hr>
 
@@ -100,15 +84,6 @@
                 <li>Your browser supports WASM <a href="https://webassembly.org/roadmap/">Fixed-width SIMD</a></li>
             </ul>
 
-            <div class="cell-version">
-                <span>
-                    |
-                    Build time: <span class="nav-link">@GIT_DATE@</span> |
-                    Commit hash: <a class="nav-link" href="https://github.com/ggerganov/whisper.cpp/commit/@GIT_SHA1@">@GIT_SHA1@</a> |
-                    Commit subject: <span class="nav-link">@GIT_COMMIT_SUBJECT@</span> |
-                    <a class="nav-link" href="https://github.com/ggerganov/whisper.cpp/tree/master/examples/stream.wasm">Source Code</a> |
-                </span>
-            </div>
         </div>
 
         <script type="text/javascript" src="helpers.js"></script>
@@ -147,7 +122,7 @@
             //
 
             let dbVersion = 1
-            let dbName    = 'whisper.ggerganov.com';
+            let dbName    = 'narain1.github.io';
             let indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB
 
             function storeFS(fname, buf) {
