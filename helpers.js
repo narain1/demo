@@ -28,63 +28,44 @@ async function clearCache() {
 
 // fetch a remote file from remote URL using the Fetch API
 async function fetchRemote(url, cbProgress, cbPrint) {
-    cbPrint('fetchRemote: downloading with fetch()...');
+    cbPrint('fetchRemote: downloading with XMLHttpRequest...');
 
-    const response = await fetch(
-        url,
-        {
-            method: 'GET',
-            mode: 'cors',
-            headers: {
-              'Access-Control-Allow-Origin':'https://github.com'
+    const req = new XMLHttpRequest();
+    req.open("GET", url, true);
+    req.responseType = "arraybuffer";
+
+    return new Promise((resolve, reject) => {
+        req.onload = function() {
+            if (req.status >= 200 && req.status < 300) {
+                cbPrint('fetchRemote: download complete');
+                resolve(new Uint8Array(req.response));
+            } else {
+                cbPrint('fetchRemote: failed to fetch ' + url);
+                reject(new Error('Network response was not ok'));
             }
-        }
-    );
+        };
 
-    if (!response.ok) {
-        cbPrint('fetchRemote: failed to fetch ' + url);
-        return;
-    }
+        req.onerror = function() {
+            cbPrint('fetchRemote: failed to fetch ' + url);
+            reject(new Error('Network request failed'));
+        };
 
-    const contentLength = response.headers.get('content-length');
-    const total = parseInt(contentLength, 10);
-    const reader = response.body.getReader();
-
-    var chunks = [];
-    var receivedLength = 0;
-    var progressLast = -1;
-
-    while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-            break;
-        }
-
-        chunks.push(value);
-        receivedLength += value.length;
-
-        if (contentLength) {
-            cbProgress(receivedLength/total);
-
-            var progressCur = Math.round((receivedLength / total) * 10);
-            if (progressCur != progressLast) {
-                cbPrint('fetchRemote: fetching ' + 10*progressCur + '% ...');
-                progressLast = progressCur;
+        req.onprogress = function(event) {
+            if (event.lengthComputable) {
+                const progress = event.loaded / event.total;
+                cbProgress(progress);
+                const progressCur = Math.round(progress * 10);
+                if (progressCur !== progressLast) {
+                    cbPrint('fetchRemote: fetching ' + (10 * progressCur) + '% ...');
+                    progressLast = progressCur;
+                }            
             }
-        }
-    }
+        };
 
-    var position = 0;
-    var chunksAll = new Uint8Array(receivedLength);
-
-    for (var chunk of chunks) {
-        chunksAll.set(chunk, position);
-        position += chunk.length;
-    }
-
-    return chunksAll;
+        req.send();
+    });
 }
+
 
 // load remote data
 // - check if the data is already in the IndexedDB
@@ -168,6 +149,9 @@ function loadRemote(url, dst, size_mb, cbProgress, cbReady, cbCancel, cbPrint) {
                             };
                         };
                     }
+                }).catch(function (error) {
+                    cbPrint('loadRemote: ' + error.message);
+                    cbCancel();
                 });
             }
         };
