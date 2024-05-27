@@ -36,7 +36,7 @@ async function fetchRemote(url, cbProgress, cbPrint) {
             method: 'GET',
             mode: 'cors',
             headers: {
-              'Access-Control-Allow-Origin':'*'
+              'Access-Control-Allow-Origin':'https://github.com'
             }
         }
     );
