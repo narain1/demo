@@ -35,6 +35,9 @@ async function fetchRemote(url, cbProgress, cbPrint) {
         {
             method: 'GET',
             mode: 'cors',
+            headers: {
+              'Access-Control-Allow-Origin':'*'
+            }
         }
     );
 
