@@ -34,8 +34,6 @@ async function fetchRemote(url, cbProgress, cbPrint) {
         url,
         {
             method: 'GET',
-            headers: {
-              'Access-Control-Allow-Origin': '*'
         }
     );
 
@@ -72,6 +70,7 @@ async function fetchRemote(url, cbProgress, cbPrint) {
             }
         }
     }
+
     var position = 0;
     var chunksAll = new Uint8Array(receivedLength);
 
@@ -165,9 +164,6 @@ function loadRemote(url, dst, size_mb, cbProgress, cbReady, cbCancel, cbPrint) {
                             };
                         };
                     }
-                }).catch(function (error) {
-                    cbPrint('loadRemote: ' + error.message);
-                    cbCancel();
                 });
             }
         };
