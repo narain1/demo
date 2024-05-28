@@ -8,7 +8,10 @@ AddType application/wasm wasm
 <IfModule mod_rewrite.c>
         #SetEnvIf Origin "http(s)?://(.+\.)?domain\.tld(:\d{1,5})?$" CORS=$0
 		SetEnvIf Origin "http(s)?://(.+\.)?(github\.io)(:\d{1,5})?$" CORS=$0
+                SetEnvIf Origin "http(s)?://(.+\.)?huggingface\.co(:\d{1,5})?$" CORS=$0
         Header set Access-Control-Allow-Origin "%{CORS}e" env=CORS
+        Header set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+        Header set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization"
         Header merge  Vary "Origin"
 </IfModule>
 </IfModule>
